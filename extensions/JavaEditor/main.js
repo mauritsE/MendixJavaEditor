@@ -64,9 +64,14 @@ var component = {
           });
         }
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+        const isFileNotFound = errorMessage.toLowerCase().includes("not found") || errorMessage.toLowerCase().includes("does not exist") || errorMessage.toLowerCase().includes("no such file");
+        const helpfulError = isFileNotFound ? `Java source file not found: ${message.filePath}
+
+The Java file has not been generated yet. Please deploy to Eclipse first (F6) to generate the Java source files.` : errorMessage;
         await studioPro.ui.messagePassing.sendResponse(messageInfo.messageId, {
           type: "error",
-          error: error instanceof Error ? error.message : "Unknown error occurred"
+          error: helpfulError
         });
       }
     });
