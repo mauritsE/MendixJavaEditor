@@ -1,6 +1,15 @@
 import React, { StrictMode, useState, useEffect, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { IComponent, getStudioProApi, ComponentContext } from "@mendix/extensions-api";
+import * as monaco from "monaco-editor";
+
+// Configure Monaco Editor to work without web workers (simpler setup)
+// This disables some features like syntax validation but keeps syntax highlighting
+(self as any).MonacoEnvironment = {
+    getWorker: function () {
+        return null;
+    },
+};
 
 interface JavaEditorMessage {
     type: "openJavaFile" | "saveJavaFile" | "getJavaFile";
@@ -26,15 +35,82 @@ interface JavaEditorProps {
 }
 
 function JavaEditor({ filePath, actionName, moduleName, componentContext }: JavaEditorProps) {
-    const [content, setContent] = useState<string>("");
     const [originalContent, setOriginalContent] = useState<string>("");
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isDirty, setIsDirty] = useState(false);
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const [lineCount, setLineCount] = useState(0);
+    const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 });
+    
+    const editorContainerRef = useRef<HTMLDivElement>(null);
+    const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+    const originalContentRef = useRef<string>("");
 
     const studioPro = getStudioProApi(componentContext);
+
+    // Initialize Monaco Editor
+    useEffect(() => {
+        if (!editorContainerRef.current || isLoading) return;
+
+        const editor = monaco.editor.create(editorContainerRef.current, {
+            value: originalContent,
+            language: "java",
+            theme: "vs-dark",
+            automaticLayout: true,
+            minimap: { enabled: true },
+            fontSize: 14,
+            fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
+            lineNumbers: "on",
+            renderLineHighlight: "all",
+            scrollBeyondLastLine: false,
+            wordWrap: "off",
+            tabSize: 4,
+            insertSpaces: true,
+            formatOnPaste: true,
+            formatOnType: true,
+            folding: true,
+            bracketPairColorization: { enabled: true },
+            guides: {
+                bracketPairs: true,
+                indentation: true,
+            },
+            smoothScrolling: true,
+            cursorBlinking: "smooth",
+            cursorSmoothCaretAnimation: "on",
+            padding: { top: 10, bottom: 10 },
+        });
+
+        editorRef.current = editor;
+        originalContentRef.current = originalContent;
+
+        // Track content changes
+        editor.onDidChangeModelContent(() => {
+            const currentContent = editor.getValue();
+            setIsDirty(currentContent !== originalContentRef.current);
+            setLineCount(editor.getModel()?.getLineCount() || 0);
+        });
+
+        // Track cursor position
+        editor.onDidChangeCursorPosition((e) => {
+            setCursorPosition({ line: e.position.lineNumber, column: e.position.column });
+        });
+
+        // Set initial line count
+        setLineCount(editor.getModel()?.getLineCount() || 0);
+
+        // Add save command (Ctrl+S / Cmd+S)
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+            const saveButton = document.getElementById("save-button");
+            if (saveButton && !saveButton.hasAttribute("disabled")) {
+                saveButton.click();
+            }
+        });
+
+        return () => {
+            editor.dispose();
+        };
+    }, [isLoading, originalContent]);
 
     // Load the Java file content
     useEffect(() => {
@@ -47,7 +123,6 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }: Java
                     { type: "getJavaFile", filePath },
                     async (response) => {
                         if (response.type === "javaFileContent" && response.content !== undefined) {
-                            setContent(response.content);
                             setOriginalContent(response.content);
                             setIsDirty(false);
                         } else if (response.type === "error") {
@@ -65,15 +140,11 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }: Java
         loadFile();
     }, [filePath]);
 
-    // Handle content changes
-    const handleContentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const newContent = e.target.value;
-        setContent(newContent);
-        setIsDirty(newContent !== originalContent);
-    }, [originalContent]);
-
     // Save the file
     const handleSave = useCallback(async () => {
+        if (!editorRef.current) return;
+        
+        const content = editorRef.current.getValue();
         setIsSaving(true);
         setError(null);
 
@@ -83,6 +154,7 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }: Java
                 async (response) => {
                     if (response.type === "saveResult" && response.success) {
                         setOriginalContent(content);
+                        originalContentRef.current = content;
                         setIsDirty(false);
                     } else if (response.type === "error") {
                         setError(response.error || "Failed to save file");
@@ -94,46 +166,15 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }: Java
             setError(err instanceof Error ? err.message : "Failed to save file");
             setIsSaving(false);
         }
-    }, [filePath, content]);
-
-    // Keyboard shortcut for save (Ctrl+S / Cmd+S)
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-                e.preventDefault();
-                if (isDirty && !isSaving) {
-                    handleSave();
-                }
-            }
-        };
-
-        window.addEventListener("keydown", handleKeyDown);
-        return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [handleSave, isDirty, isSaving]);
-
-    // Handle tab key in textarea
-    const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key === "Tab") {
-            e.preventDefault();
-            const textarea = textareaRef.current;
-            if (textarea) {
-                const start = textarea.selectionStart;
-                const end = textarea.selectionEnd;
-                const newContent = content.substring(0, start) + "    " + content.substring(end);
-                setContent(newContent);
-                setIsDirty(newContent !== originalContent);
-                // Set cursor position after the tab
-                setTimeout(() => {
-                    textarea.selectionStart = textarea.selectionEnd = start + 4;
-                }, 0);
-            }
-        }
-    }, [content, originalContent]);
+    }, [filePath]);
 
     if (isLoading) {
         return (
             <div style={styles.container}>
-                <div style={styles.loading}>Loading {filePath}...</div>
+                <div style={styles.loading}>
+                    <div style={styles.loadingSpinner}></div>
+                    <span>Loading {filePath}...</span>
+                </div>
             </div>
         );
     }
@@ -150,6 +191,7 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }: Java
                 </div>
                 <div style={styles.actions}>
                     <button
+                        id="save-button"
                         style={{
                             ...styles.button,
                             ...(isDirty && !isSaving ? styles.buttonPrimary : styles.buttonDisabled)
@@ -157,7 +199,7 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }: Java
                         onClick={handleSave}
                         disabled={!isDirty || isSaving}
                     >
-                        {isSaving ? "Saving..." : "Save"}
+                        {isSaving ? "Saving..." : "Save (Ctrl+S)"}
                     </button>
                 </div>
             </div>
@@ -168,28 +210,22 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }: Java
                 </div>
             )}
 
-            <div style={styles.editorContainer}>
-                <div style={styles.lineNumbers}>
-                    {content.split("\n").map((_, i) => (
-                        <div key={i} style={styles.lineNumber}>{i + 1}</div>
-                    ))}
-                </div>
-                <textarea
-                    ref={textareaRef}
-                    style={styles.editor}
-                    value={content}
-                    onChange={handleContentChange}
-                    onKeyDown={handleKeyDown}
-                    spellCheck={false}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                />
-            </div>
+            <div 
+                ref={editorContainerRef} 
+                style={styles.editorContainer}
+            />
             
             <div style={styles.statusBar}>
-                <span>Java | UTF-8</span>
-                <span>{content.split("\n").length} lines</span>
+                <div style={styles.statusLeft}>
+                    <span>Java</span>
+                    <span style={styles.statusSeparator}>|</span>
+                    <span>UTF-8</span>
+                </div>
+                <div style={styles.statusRight}>
+                    <span>Ln {cursorPosition.line}, Col {cursorPosition.column}</span>
+                    <span style={styles.statusSeparator}>|</span>
+                    <span>{lineCount} lines</span>
+                </div>
             </div>
         </div>
     );
@@ -203,6 +239,7 @@ const styles: Record<string, React.CSSProperties> = {
         backgroundColor: "#1e1e1e",
         color: "#d4d4d4",
         fontFamily: "system-ui, -apple-system, sans-serif",
+        overflow: "hidden",
     },
     header: {
         display: "flex",
@@ -211,6 +248,7 @@ const styles: Record<string, React.CSSProperties> = {
         padding: "8px 16px",
         backgroundColor: "#252526",
         borderBottom: "1px solid #3c3c3c",
+        flexShrink: 0,
     },
     fileInfo: {
         display: "flex",
@@ -241,6 +279,7 @@ const styles: Record<string, React.CSSProperties> = {
         fontSize: "13px",
         cursor: "pointer",
         fontWeight: 500,
+        transition: "background-color 0.2s",
     },
     buttonPrimary: {
         backgroundColor: "#0e639c",
@@ -256,40 +295,11 @@ const styles: Record<string, React.CSSProperties> = {
         backgroundColor: "#5a1d1d",
         color: "#f48771",
         fontSize: "13px",
+        flexShrink: 0,
     },
     editorContainer: {
         flex: 1,
-        display: "flex",
         overflow: "hidden",
-    },
-    lineNumbers: {
-        width: "50px",
-        backgroundColor: "#1e1e1e",
-        borderRight: "1px solid #3c3c3c",
-        padding: "12px 0",
-        overflow: "hidden",
-        userSelect: "none",
-    },
-    lineNumber: {
-        textAlign: "right",
-        paddingRight: "12px",
-        fontSize: "13px",
-        lineHeight: "20px",
-        color: "#858585",
-        fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
-    },
-    editor: {
-        flex: 1,
-        resize: "none",
-        border: "none",
-        outline: "none",
-        padding: "12px",
-        backgroundColor: "#1e1e1e",
-        color: "#d4d4d4",
-        fontSize: "13px",
-        lineHeight: "20px",
-        fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
-        tabSize: 4,
     },
     statusBar: {
         display: "flex",
@@ -298,16 +308,50 @@ const styles: Record<string, React.CSSProperties> = {
         backgroundColor: "#007acc",
         color: "#ffffff",
         fontSize: "12px",
+        flexShrink: 0,
+    },
+    statusLeft: {
+        display: "flex",
+        gap: "8px",
+        alignItems: "center",
+    },
+    statusRight: {
+        display: "flex",
+        gap: "8px",
+        alignItems: "center",
+    },
+    statusSeparator: {
+        opacity: 0.6,
     },
     loading: {
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         height: "100%",
         fontSize: "14px",
         color: "#808080",
+        gap: "16px",
+    },
+    loadingSpinner: {
+        width: "32px",
+        height: "32px",
+        border: "3px solid #3c3c3c",
+        borderTop: "3px solid #007acc",
+        borderRadius: "50%",
+        animation: "spin 1s linear infinite",
     },
 };
+
+// Add keyframe animation for spinner
+const styleSheet = document.createElement("style");
+styleSheet.textContent = `
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+`;
+document.head.appendChild(styleSheet);
 
 export const component: IComponent = {
     async loaded(componentContext: ComponentContext) {

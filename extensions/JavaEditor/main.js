@@ -1,6 +1,7 @@
 import {
   s
-} from "./chunk-RNF4TMFR.js";
+} from "./chunk-3OMKR3A7.js";
+import "./chunk-G3PMV62Z.js";
 
 // src/main/index.ts
 var studioPro;
