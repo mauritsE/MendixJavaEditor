@@ -26066,6 +26066,7 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }) {
         saveButton.click();
       }
     });
+    editor2.focus();
     return () => {
       editor2.dispose();
     };
@@ -26075,20 +26076,17 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }) {
       setIsLoading(true);
       setError(null);
       try {
-        await studioPro.ui.messagePassing.sendMessage(
-          { type: "getJavaFile", filePath },
-          async (response) => {
-            if (response.type === "javaFileContent" && response.content !== void 0) {
-              setOriginalContent(response.content);
-              setIsDirty(false);
-            } else if (response.type === "error") {
-              setError(response.error || "Failed to load file");
-            }
-            setIsLoading(false);
-          }
-        );
+        const content = await studioPro.app.files.getFile(filePath);
+        setOriginalContent(content);
+        setIsDirty(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load file");
+        const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
+        const isFileNotFound = errorMessage.toLowerCase().includes("not found") || errorMessage.toLowerCase().includes("does not exist") || errorMessage.toLowerCase().includes("no such file");
+        const helpfulError = isFileNotFound ? `Java source file not found: ${filePath}
+
+The Java file has not been generated yet. Please deploy to Eclipse first (F6) to generate the Java source files.` : errorMessage;
+        setError(helpfulError);
+      } finally {
         setIsLoading(false);
       }
     };
@@ -26100,21 +26098,13 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }) {
     setIsSaving(true);
     setError(null);
     try {
-      await studioPro.ui.messagePassing.sendMessage(
-        { type: "saveJavaFile", filePath, content },
-        async (response) => {
-          if (response.type === "saveResult" && response.success) {
-            setOriginalContent(content);
-            originalContentRef.current = content;
-            setIsDirty(false);
-          } else if (response.type === "error") {
-            setError(response.error || "Failed to save file");
-          }
-          setIsSaving(false);
-        }
-      );
+      await studioPro.app.files.putFile(filePath, content);
+      setOriginalContent(content);
+      originalContentRef.current = content;
+      setIsDirty(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save file");
+    } finally {
       setIsSaving(false);
     }
   }, [filePath]);
@@ -26257,6 +26247,35 @@ styleSheet.textContent = `
     @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
+    }
+    
+    /* Ensure Monaco cursor is visible */
+    .monaco-editor .cursor {
+        background-color: #ffffff !important;
+        border-color: #ffffff !important;
+        color: #ffffff !important;
+    }
+    
+    .monaco-editor .cursors-layer > .cursor {
+        background-color: #aeafad !important;
+        border-left: 2px solid #aeafad !important;
+    }
+    
+    /* Line highlight */
+    .monaco-editor .current-line {
+        background-color: rgba(255, 255, 255, 0.04) !important;
+        border: none !important;
+    }
+    
+    /* Selection highlight */
+    .monaco-editor .selected-text {
+        background-color: rgba(38, 79, 120, 0.8) !important;
+    }
+    
+    /* Ensure editor takes focus styles */
+    .monaco-editor:focus-within .cursors-layer > .cursor {
+        visibility: visible !important;
+        opacity: 1 !important;
     }
 `;
 document.head.appendChild(styleSheet);
