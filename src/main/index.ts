@@ -35,7 +35,7 @@ export const component: IComponent = {
                     }
                 }
             },
-            "CodeActions$JavaAction"
+            "JavaActions$JavaAction"
         );
 
         // Also add menu item to the Extensions menu for convenience
