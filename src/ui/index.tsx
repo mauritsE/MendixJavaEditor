@@ -44,7 +44,7 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }: Java
             automaticLayout: true,
             minimap: { enabled: true },
             fontSize: 14,
-            fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
+            fontFamily: "monospace",
             lineNumbers: "on",
             renderLineHighlight: "all",
             scrollBeyondLastLine: false,
@@ -60,13 +60,22 @@ function JavaEditor({ filePath, actionName, moduleName, componentContext }: Java
                 indentation: true,
             },
             smoothScrolling: true,
-            cursorBlinking: "smooth",
-            cursorSmoothCaretAnimation: "on",
+            cursorBlinking: "blink",
+            cursorSmoothCaretAnimation: "off",
             padding: { top: 10, bottom: 10 },
+            // Fix for click position issues
+            disableMonospaceOptimizations: false,
+            stopRenderingLineAfter: -1,
+            fixedOverflowWidgets: true,
         });
 
         editorRef.current = editor;
         originalContentRef.current = originalContent;
+
+        // Force layout recalculation after a short delay to fix click positioning
+        setTimeout(() => {
+            editor.layout();
+        }, 100);
 
         // Track content changes
         editor.onDidChangeModelContent(() => {
@@ -325,7 +334,7 @@ const styles: Record<string, React.CSSProperties> = {
     },
 };
 
-// Add keyframe animation for spinner and Monaco cursor fixes
+// Add keyframe animation for spinner and fix layout
 const styleSheet = document.createElement("style");
 styleSheet.textContent = `
     @keyframes spin {
@@ -333,39 +342,80 @@ styleSheet.textContent = `
         100% { transform: rotate(360deg); }
     }
     
-    /* Ensure Monaco cursor is visible */
-    .monaco-editor .cursor {
-        background-color: #ffffff !important;
-        border-color: #ffffff !important;
-        color: #ffffff !important;
+    /* Ensure root fills the container */
+    html, body, #root {
+        margin: 0 !important;
+        padding: 0 !important;
+        height: 100% !important;
+        width: 100% !important;
+        overflow: hidden !important;
+        position: relative !important;
     }
     
-    .monaco-editor .cursors-layer > .cursor {
-        background-color: #aeafad !important;
-        border-left: 2px solid #aeafad !important;
+    /* Hide ALL textareas except Monaco's internal one */
+    textarea {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        padding: 0 !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip: rect(0, 0, 0, 0) !important;
+        white-space: nowrap !important;
+        border: 0 !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
     }
     
-    /* Line highlight */
-    .monaco-editor .current-line {
-        background-color: rgba(255, 255, 255, 0.04) !important;
-        border: none !important;
-    }
-    
-    /* Selection highlight */
-    .monaco-editor .selected-text {
-        background-color: rgba(38, 79, 120, 0.8) !important;
-    }
-    
-    /* Ensure editor takes focus styles */
-    .monaco-editor:focus-within .cursors-layer > .cursor {
-        visibility: visible !important;
-        opacity: 1 !important;
+    /* But allow Monaco's textarea to work (it's used for input) */
+    .monaco-editor textarea.inputarea {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        opacity: 0 !important;
+        pointer-events: auto !important;
     }
 `;
 document.head.appendChild(styleSheet);
 
+// Remove any non-Monaco textareas from DOM
+function removeUnwantedTextareas() {
+    document.querySelectorAll('textarea').forEach(ta => {
+        if (!ta.classList.contains('inputarea') && !ta.closest('.monaco-editor')) {
+            ta.remove();
+        }
+    });
+}
+
+// Run immediately
+removeUnwantedTextareas();
+
+// Watch for any new textareas being added
+const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+            mutation.addedNodes.forEach((node) => {
+                if (node instanceof HTMLTextAreaElement) {
+                    if (!node.classList.contains('inputarea') && !node.closest?.('.monaco-editor')) {
+                        node.remove();
+                    }
+                }
+            });
+        }
+    }
+});
+
+observer.observe(document.body, { childList: true, subtree: true });
+
 export const component: IComponent = {
     async loaded(componentContext: ComponentContext) {
+        // Remove any default textarea elements that the framework might inject
+        document.querySelectorAll('textarea').forEach(ta => {
+            if (!ta.classList.contains('inputarea') && !ta.closest('.monaco-editor')) {
+                ta.remove();
+            }
+        });
+
         // Parse query parameters from URL
         const urlParams = new URLSearchParams(window.location.search);
         const filePath = urlParams.get("filePath") || "";
