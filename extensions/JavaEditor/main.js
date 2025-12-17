@@ -19,7 +19,7 @@ var component = {
           }
         }
       },
-      "CodeActions$JavaAction"
+      "JavaActions$JavaAction"
     );
     await studioPro.ui.extensionsMenu.add({
       menuId: "JavaEditor.MainMenu",
@@ -33,7 +33,7 @@ var component = {
       async (args) => {
         if (args.menuId === "JavaEditor.OpenCurrentAction") {
           const activeDoc = await studioPro.ui.editors.getActiveDocument();
-          if (activeDoc && activeDoc.documentType === "CodeActions$JavaAction" && activeDoc.documentName && activeDoc.moduleName) {
+          if (activeDoc && activeDoc.documentType === "JavaActions$JavaAction" && activeDoc.documentName && activeDoc.moduleName) {
             await openJavaEditorTab(activeDoc.documentName, activeDoc.moduleName);
           } else {
             await studioPro.ui.messageBoxes.show(

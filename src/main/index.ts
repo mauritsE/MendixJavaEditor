@@ -53,7 +53,7 @@ export const component: IComponent = {
             async (args) => {
                 if (args.menuId === "JavaEditor.OpenCurrentAction") {
                     const activeDoc = await studioPro.ui.editors.getActiveDocument();
-                    if (activeDoc && activeDoc.documentType === "CodeActions$JavaAction" && activeDoc.documentName && activeDoc.moduleName) {
+                    if (activeDoc && activeDoc.documentType === "JavaActions$JavaAction" && activeDoc.documentName && activeDoc.moduleName) {
                         await openJavaEditorTab(activeDoc.documentName, activeDoc.moduleName);
                     } else {
                         await studioPro.ui.messageBoxes.show(
@@ -86,9 +86,18 @@ export const component: IComponent = {
                     });
                 }
             } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+                const isFileNotFound = errorMessage.toLowerCase().includes("not found") || 
+                                       errorMessage.toLowerCase().includes("does not exist") ||
+                                       errorMessage.toLowerCase().includes("no such file");
+                
+                const helpfulError = isFileNotFound
+                    ? `Java source file not found: ${message.filePath}\n\nThe Java file has not been generated yet. Please deploy to Eclipse first (F6) to generate the Java source files.`
+                    : errorMessage;
+                
                 await studioPro.ui.messagePassing.sendResponse<JavaEditorResponse>(messageInfo.messageId, {
                     type: "error",
-                    error: error instanceof Error ? error.message : "Unknown error occurred"
+                    error: helpfulError
                 });
             }
         });
